@@ -1,9 +1,9 @@
 # Copyright (c) 2009, Tim Cuthbertson # All rights reserved.
-# 
+#
 # Redistribution and use in source and binary forms, with or without
 # modification, are permitted provided that the following conditions
 # are met:
-# 
+#
 #     * Redistributions of source code must retain the above copyright
 #       notice, this list of conditions and the following disclaimer.
 #     * Redistributions in binary form must reproduce the above
@@ -13,7 +13,7 @@
 #     * Neither the name of the organisation nor the names of its
 #       contributors may be used to endorse or promote products derived
 #       from this software without specific prior written permission.
-# 
+#
 # THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 # "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
 # LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
@@ -225,7 +225,7 @@ class RedNose(nose.plugins.Plugin):
 				additionals.append(termstyle.blue("%s skipped" % (
 					self.skip)))
 			self._out(', '.join(additionals))
-				
+
 		self._out(termstyle.green(" (%s test%s passed)" % (
 			self.success,
 			self._plural(self.success) )))
@@ -300,7 +300,7 @@ class RedNose(nose.plugins.Plugin):
 				ret.append(line)
 			current_trace = current_trace.tb_next
 		return '\n'.join(ret)
-	
+
 	def _fmt_message(self, exception, color):
 		orig_message_lines = to_unicode(exception).splitlines()
 
@@ -312,9 +312,32 @@ class RedNose(nose.plugins.Plugin):
 			if match:
 				color = None
 				message_lines.append('')
-			line = '   ' + line
-			message_lines.append(color(line) if color is not None else line)
+				line = '   ' + self._fmt_message_line(line)
+			else:
+				line = '   ' + self._fmt_message_line(line)
+			message_lines.append(line)
 		return '\n'.join(message_lines)
+
+	def _fmt_message_line(self, line):
+		sql = re.match('(sqlalchemy.engine.base.Engine): (\w+:) (\w+) (.*)', line)
+		if sql:
+			return self._fmt_message_sqlalchemy_line(line, sql)
+		return line
+
+	def _fmt_message_sqlalchemy_line(self, line, match):
+		logger = match.group(1)
+		level = match.group(2)
+		verb = match.group(3)
+		rest = match.group(4)
+		if verb in ['SELECT']:
+			return "%s: %s: %s %s" % (logger, level, termstyle.cyan(verb), termstyle.cyan(rest))
+		elif verb in ['BEGIN', 'SAVEPOINT', 'ROLLBACK', 'COMMIT']:
+			return "%s: %s: %s %s" % (logger, level, termstyle.bold(termstyle.green(verb)),
+									  termstyle.green(rest))
+		elif verb in ['INSERT', 'UPDATE']:
+			return "%s: %s: %s %s" % (logger, level, termstyle.bold(termstyle.red(verb)),
+									  termstyle.red(rest))
+		return line
 
 	def _out(self, msg='', newline=False):
 		self.stream.write(msg)
