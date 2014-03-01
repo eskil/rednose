@@ -125,6 +125,8 @@ class RedNose(nose.plugins.Plugin):
 	def begin(self):
 		self.start_time = time.time()
 		self._in_test = False
+		self._in_multiline_sql = False
+		self._in_multiline_sql_color = termstyle.default
 
 	def _format_test_name(self, test):
 		return test.shortDescription() or to_unicode(test)
@@ -301,9 +303,6 @@ class RedNose(nose.plugins.Plugin):
 			current_trace = current_trace.tb_next
 		return '\n'.join(ret)
 
-	def _noop_color(line):
-		return line
-
 	def _fmt_message(self, exception, color):
 		orig_message_lines = to_unicode(exception).splitlines()
 
@@ -313,20 +312,46 @@ class RedNose(nose.plugins.Plugin):
 		for line in orig_message_lines[1:]:
 			match = re.match('^---.* begin captured stdout.*----$', line)
 			if match:
-				color = _noop_color
+				color = termstyle.default
 				message_lines.append('')
-				line = '   ' + self._fmt_message_line(line, color)
+				line = self._fmt_message_line(line, color)
 			else:
-				line = '   ' + self._fmt_message_line(line, color)
-			message_lines.append(line)
+				line = self._fmt_message_line(line, color)
+
+			if line:
+				line = '   ' +  line
+				message_lines.append(line)
 		return '\n'.join(message_lines)
 
 	def _fmt_message_line(self, line, color):
-		sql = re.match('(sqlalchemy.engine.base.Engine): (\w+:) (\w+) (.*)', line)
+		sql = re.match('(sqlalchemy.engine.base.Engine): (\w+): (\w+) (.*)', line)
 		if not sql:
-			sql = re.match('(sqlalchemy.engine.base.Engine): (\w+:) (\w+)', line)
+			sql = re.match('(sqlalchemy.engine.base.Engine): (\w+): (\w+)', line)
 		if sql:
 			return self._fmt_message_sqlalchemy_line(line, sql, color)
+
+		if self._in_multiline_sql:
+			return self._fmt_message_sqlalchemy_multi_line(line, color)
+
+		return color(line)
+
+
+	# SQLAlchemy causes multiline statements, so let's deal with that... If the line isn't a
+	# "logger: LEVEL:", we're done with multi line SQL. We could do fancy things like actually
+	# bind the SELECT statement variables and collapse multilines to 1 line.
+	def _fmt_message_sqlalchemy_multi_line(self, line, color):
+		param = re.match('(sqlalchemy.engine.base.Engine): (\w+): ({.*})', line)
+		if param:
+			if param.group(3) == '{}':
+				return None
+			else:
+				return color("%s: %s: " % (param.group(1), param.group(2))) + termstyle.bold(self._in_multiline_sql_color(param.group(3)))
+		elif not re.match('[\w\.]+: [A-Z]*:', line):
+			return self._in_multiline_sql_color(line)
+		else:
+			self._in_multiline_sql = False
+			self._in_multiline_sql_color = termstyle.default
+
 		return color(line)
 
 	def _fmt_message_sqlalchemy_line(self, line, match, color):
@@ -336,13 +361,18 @@ class RedNose(nose.plugins.Plugin):
 		rest = match.group(4) if len(match.groups()) > 3 else ''
 		if verb in ['SELECT']:
 			head = color("%s: %s:" % (logger, level))
-			tail = termstyle.cyan("%s %s" % (verb, rest))
-			return head + " " + tail
-		elif verb in ['BEGIN', 'SAVEPOINT', 'ROLLBACK', 'COMMIT']:
+			self._in_multiline_sql = verb
+			self._in_multiline_sql_color = termstyle.cyan
+			return "%s %s %s" % (head, termstyle.bold(termstyle.cyan(verb)), termstyle.cyan(rest))
+		elif verb in ['BEGIN', 'SAVEPOINT', 'RELEASE', 'ROLLBACK', 'COMMIT']:
 			head = color("%s: %s:" % (logger, level))
+			self._in_multiline_sql = verb
+			self._in_multiline_sql_color = termstyle.green
 			return "%s %s %s" % (head, termstyle.bold(termstyle.green(verb)), termstyle.green(rest))
 		elif verb in ['INSERT', 'UPDATE', 'DELETE']:
 			head = color("%s: %s:" % (logger, level))
+			self._in_multiline_sql = verb
+			self._in_multiline_sql_color = termstyle.red
 			return "%s %s %s" % (head, termstyle.bold(termstyle.red(verb)), termstyle.red(rest))
 		return color(line)
 
