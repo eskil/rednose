@@ -301,6 +301,9 @@ class RedNose(nose.plugins.Plugin):
 			current_trace = current_trace.tb_next
 		return '\n'.join(ret)
 
+	def _noop_color(line):
+		return line
+
 	def _fmt_message(self, exception, color):
 		orig_message_lines = to_unicode(exception).splitlines()
 
@@ -310,34 +313,38 @@ class RedNose(nose.plugins.Plugin):
 		for line in orig_message_lines[1:]:
 			match = re.match('^---.* begin captured stdout.*----$', line)
 			if match:
-				color = None
+				color = _noop_color
 				message_lines.append('')
-				line = '   ' + self._fmt_message_line(line)
+				line = '   ' + self._fmt_message_line(line, color)
 			else:
-				line = '   ' + self._fmt_message_line(line)
+				line = '   ' + self._fmt_message_line(line, color)
 			message_lines.append(line)
 		return '\n'.join(message_lines)
 
-	def _fmt_message_line(self, line):
+	def _fmt_message_line(self, line, color):
 		sql = re.match('(sqlalchemy.engine.base.Engine): (\w+:) (\w+) (.*)', line)
+		if not sql:
+			sql = re.match('(sqlalchemy.engine.base.Engine): (\w+:) (\w+)', line)
 		if sql:
-			return self._fmt_message_sqlalchemy_line(line, sql)
-		return line
+			return self._fmt_message_sqlalchemy_line(line, sql, color)
+		return color(line)
 
-	def _fmt_message_sqlalchemy_line(self, line, match):
+	def _fmt_message_sqlalchemy_line(self, line, match, color):
 		logger = match.group(1)
 		level = match.group(2)
 		verb = match.group(3)
-		rest = match.group(4)
+		rest = match.group(4) if len(match.groups()) > 3 else ''
 		if verb in ['SELECT']:
-			return "%s: %s: %s %s" % (logger, level, termstyle.cyan(verb), termstyle.cyan(rest))
+			head = color("%s: %s:" % (logger, level))
+			tail = termstyle.cyan("%s %s" % (verb, rest))
+			return head + " " + tail
 		elif verb in ['BEGIN', 'SAVEPOINT', 'ROLLBACK', 'COMMIT']:
-			return "%s: %s: %s %s" % (logger, level, termstyle.bold(termstyle.green(verb)),
-									  termstyle.green(rest))
-		elif verb in ['INSERT', 'UPDATE']:
-			return "%s: %s: %s %s" % (logger, level, termstyle.bold(termstyle.red(verb)),
-									  termstyle.red(rest))
-		return line
+			head = color("%s: %s:" % (logger, level))
+			return "%s %s %s" % (head, termstyle.bold(termstyle.green(verb)), termstyle.green(rest))
+		elif verb in ['INSERT', 'UPDATE', 'DELETE']:
+			head = color("%s: %s:" % (logger, level))
+			return "%s %s %s" % (head, termstyle.bold(termstyle.red(verb)), termstyle.red(rest))
+		return color(line)
 
 	def _out(self, msg='', newline=False):
 		self.stream.write(msg)
