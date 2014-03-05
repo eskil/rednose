@@ -369,7 +369,7 @@ class RedNose(nose.plugins.Plugin):
 			self._in_multiline_sql = verb
 			self._in_multiline_sql_color = termstyle.green
 			return "%s %s %s" % (head, termstyle.bold(termstyle.green(verb)), termstyle.green(rest))
-		elif verb in ['INSERT', 'UPDATE', 'DELETE']:
+		elif verb in ['INSERT', 'UPDATE', 'DELETE', 'TRUNCATE']:
 			head = color("%s: %s:" % (logger, level))
 			self._in_multiline_sql = verb
 			self._in_multiline_sql_color = termstyle.red
